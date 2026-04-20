@@ -1,0 +1,54 @@
+import tensorflow as tf
+import numpy as np
+import tensorflow_datasets as tfds
+from tensorflow.keras import models, layers
+
+(ds_train, ds_test), info = tfds.load(
+    'emnist/balanced',
+    split=['train', 'test'],
+    as_supervised=True,
+    with_info=True)
+
+def prepare(dataset):
+    images, labels = zip(*[(img.numpy(), lbl.numpy()) for img, lbl in dataset])
+    images = np.array(images).astype('float32') / 255
+    images = images.reshape((-1, 28, 28, 1))
+    labels = np.array(labels)
+    return images, labels
+
+train_images, train_labels = prepare(ds_train)
+test_images, test_labels = prepare(ds_test)
+
+train_images = np.flip(train_images, axis=2)
+train_images = np.rot90(train_images, k=3, axes=(1, 2))
+test_images = np.flip(test_images, axis=2)
+test_images = np.rot90(test_images, k=3, axes=(1, 2))
+
+model = models.Sequential([
+    layers.Conv2D(32, (3, 3), activation='relu', input_shape=(28, 28, 1)),
+    layers.MaxPooling2D((2, 2)),
+    layers.Conv2D(64, (3, 3), activation='relu'),
+    layers.MaxPooling2D((2, 2)),
+    layers.Flatten(),
+    layers.Dense(256, activation='relu'),
+    layers.Dropout(0.2),
+    layers.Dense(47, activation='softmax')
+])
+
+model.compile(optimizer='adam',
+              loss='sparse_categorical_crossentropy',
+              metrics=['accuracy'])
+
+early_stop = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=3)
+
+model.fit(
+    train_images, train_labels,
+    epochs=50,
+    validation_split=0.1,
+    callbacks=[early_stop]
+)
+
+class_mapping = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+
+model.save('handwritten_model.keras')
+print("Model was taught and saved")
