@@ -1,0 +1,255 @@
+import sys
+import os
+import time
+import numpy as np
+import cv2
+from tensorflow.keras.models import load_model
+from PyQt6.QtGui import QPainter, QPen, QImage
+from PyQt6.QtCore import Qt, QPoint
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget,
+                             QVBoxLayout, QHBoxLayout, QPushButton,
+                             QSlider, QTextEdit, QLabel, QFileDialog,
+                             QMessageBox, QLineEdit)
+
+
+class Canvas(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setFixedSize(380, 380)
+        self.image = QImage(self.size(), QImage.Format.Format_RGB32)
+        self.image.fill(Qt.GlobalColor.black)
+        self.drawing = False
+        self.brush_size = 15
+        self.last_point = QPoint()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.drawing = True
+            self.last_point = event.position().toPoint()
+
+    def mouseMoveEvent(self, event):
+        if (event.buttons() & Qt.MouseButton.LeftButton) and self.drawing:
+            painter = QPainter(self.image)
+            painter.setPen(QPen(Qt.GlobalColor.white, self.brush_size,
+                                Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap,
+                                Qt.PenJoinStyle.RoundJoin))
+            painter.drawLine(self.last_point, event.position().toPoint())
+            self.last_point = event.position().toPoint()
+            self.update()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.drawing = False
+
+    def paintEvent(self, event):
+        canvas_painter = QPainter(self)
+        canvas_painter.drawImage(self.rect(), self.image)
+
+    def clear(self):
+        self.image.fill(Qt.GlobalColor.black)
+        self.update()
+
+    def get_image_array(self):
+        ptr = self.image.bits()
+        ptr.setsize(self.image.height() * self.image.width() * 4)
+        arr = np.frombuffer(ptr, np.uint8).reshape((self.image.height(), self.image.width(), 4))
+        return cv2.cvtColor(arr, cv2.COLOR_BGRA2GRAY)
+
+
+class RecognitionApp(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Symbols recognition system")
+        self.mapping = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+
+        try:
+            self.model = load_model('handwritten_model.keras')
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Model not found: {e}")
+
+        self.init_ui()
+        self.apply_styles()
+
+    def init_ui(self):
+        main_widget = QWidget()
+        self.setCentralWidget(main_widget)
+        layout = QHBoxLayout(main_widget)
+
+        # Left Panel (Drawing)
+        left_layout = QVBoxLayout()
+        self.canvas = Canvas()
+        self.slider = QSlider(Qt.Orientation.Horizontal)
+        self.slider.setRange(5, 40)
+        self.slider.setValue(15)
+        self.slider.valueChanged.connect(self.change_brush_size)
+
+        btn_layout = QHBoxLayout()
+        btn_recognize = QPushButton("Recognize")
+        btn_clear = QPushButton("Clean")
+        btn_load_img = QPushButton("Upload image")
+
+        btn_recognize.clicked.connect(self.recognize_symbol)
+        btn_clear.clicked.connect(self.canvas.clear)
+        btn_load_img.clicked.connect(self.load_external_image)
+
+        left_layout.addWidget(QLabel("Draw symbols here:"))
+        left_layout.addWidget(self.canvas)
+        left_layout.addWidget(QLabel("Brush size:"))
+        left_layout.addWidget(self.slider)
+        btn_layout.addWidget(btn_recognize)
+        btn_layout.addWidget(btn_clear)
+        left_layout.addLayout(btn_layout)
+        left_layout.addWidget(btn_load_img)
+
+        # Right Panel (Results and Correction)
+        right_layout = QVBoxLayout()
+        self.result_label = QLabel("Result: -")
+        self.text_edit = QTextEdit()
+
+        correction_layout = QHBoxLayout()
+        self.correct_input = QLineEdit()
+        self.correct_input.setPlaceholderText("Correct char")
+        self.correct_input.setMaxLength(1)
+        self.correct_input.setFixedWidth(100)
+        btn_fix = QPushButton("Fix & Save")
+        btn_fix.clicked.connect(self.save_for_training)
+        correction_layout.addWidget(self.correct_input)
+        correction_layout.addWidget(btn_fix)
+
+        btn_add = QPushButton("Add to text")
+        btn_save = QPushButton("Save notes (.txt)")
+        btn_clear_text = QPushButton("Clear notes")
+
+        btn_add.clicked.connect(self.add_to_text)
+        btn_save.clicked.connect(self.save_notes)
+        btn_clear_text.clicked.connect(lambda: self.text_edit.clear())
+
+        right_layout.addWidget(self.result_label)
+        right_layout.insertLayout(1, correction_layout)
+        right_layout.addWidget(QLabel("Your notes:"))
+        right_layout.addWidget(self.text_edit)
+        right_layout.addWidget(btn_add)
+        right_layout.addWidget(btn_save)
+        right_layout.addWidget(btn_clear_text)
+
+        layout.addLayout(left_layout)
+        layout.addLayout(right_layout)
+
+    # Recognition Logic
+    def process_and_predict(self, img_gray):
+        img_resized = cv2.resize(img_gray, (28, 28), interpolation=cv2.INTER_AREA)
+        img_normalized = img_resized.astype('float32') / 255.0
+        img_input = img_normalized.reshape(1, 28, 28, 1)
+        prediction = self.model.predict(img_input)
+        class_idx = np.argmax(prediction)
+        self.current_symbol = self.mapping[class_idx]
+        self.result_label.setText(f"Result: {self.current_symbol}")
+
+    def recognize_symbol(self):
+        img = self.canvas.get_image_array()
+        self.process_and_predict(img)
+
+    def change_brush_size(self, value):
+        self.canvas.brush_size = value
+
+    # Files and External Data
+    def load_external_image(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Open Image", "", "Images (*.png *.jpg *.jpeg)")
+        if file_path:
+            external_img = cv2.imread(file_path, cv2.IMREAD_GRAYSCALE)
+            if external_img is not None:
+                if np.mean(external_img) > 127:
+                    external_img = cv2.bitwise_not(external_img)
+                self.process_and_predict(external_img)
+
+    def save_for_training(self):
+        correct_char = self.correct_input.text()
+        if not correct_char:
+            QMessageBox.warning(self, "Error", "Enter the correct character!")
+            return
+        img = self.canvas.get_image_array()
+        img_resized = cv2.resize(img, (28, 28), interpolation=cv2.INTER_AREA)
+        path = os.path.join('collected_data', correct_char)
+        if not os.path.exists(path):
+            os.makedirs(path)
+        filename = f"{int(time.time())}.png"
+        cv2.imwrite(os.path.join(path, filename), img_resized)
+        QMessageBox.information(self, "Saved", f"Character '{correct_char}' saved!")
+        self.correct_input.clear()
+
+    def save_notes(self):
+        file_path, _ = QFileDialog.getSaveFileName(self, "Save Notes", "", "Text Files (*.txt);;All Files (*)")
+        if file_path:
+            try:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(self.text_edit.toPlainText())
+                QMessageBox.information(self, "Success", "Notes saved!")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Could not save file: {e}")
+
+    def add_to_text(self):
+        if hasattr(self, 'current_symbol'):
+            self.text_edit.insertPlainText(self.current_symbol)
+
+    # Visuals
+    def apply_styles(self):
+        # Устанавливаем основной шрифт для всего приложения
+        main_font = "font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', sans-serif;"
+
+        self.setStyleSheet(f"""
+            QMainWindow {{
+                background-color: #1e1e2e;
+            }}
+            QLabel {{
+                {main_font}
+                color: #cdd6f4;
+                font-size: 14px;
+            }}
+            QPushButton {{
+                {main_font}
+                background-color: #8839ef;
+                color: white;
+                border-radius: 10px;
+                padding: 10px;
+                font-weight: 600;
+                font-size: 13px;
+            }}
+            QPushButton:hover {{
+                background-color: #722ed1;
+            }}
+            QTextEdit, QLineEdit {{
+                {main_font}
+                background-color: #313244;
+                color: #cdd6f4;
+                border: 2px solid #45475a;
+                border-radius: 12px;
+                padding: 8px;
+                font-size: 15px;
+            }}
+            QTextEdit:focus, QLineEdit:focus {{
+                border: 2px solid #cba6f7;
+            }}
+            QSlider::handle:horizontal {{
+                background: #8839ef;
+                border-radius: 7px;
+                width: 14px;
+                height: 14px;
+            }}
+        """)
+
+        # Стилизуем заголовок результата отдельно (сделаем его более футуристичным)
+        self.result_label.setStyleSheet(f"""
+            {main_font}
+            font-size: 28px;
+            font-weight: 800;
+            color: #cba6f7;
+            margin-bottom: 10px;
+            letter-spacing: 1px;
+        """)
+
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = RecognitionApp()
+    window.show()
+    sys.exit(app.exec())
