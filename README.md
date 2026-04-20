@@ -5,7 +5,7 @@ Documentation and Project Overview
 
 ---
 
-## 🛠 Technology Stack
+##  Technology Stack
 
 ### Frontend
 **Interaction Window Widgets:**
@@ -41,7 +41,7 @@ Documentation and Project Overview
 
 ---
 
-## 📚 Libraries Used (Python)
+##  Libraries Used (Python)
 *   **Tensorflow/Keras:** Model loading and inference.
 *   **NumPy:** Numerical operations and array manipulation.
 *   **OpenCV:** Image processing and resizing.
@@ -50,7 +50,7 @@ Documentation and Project Overview
 
 ---
 
-## 🚀 Use Cases
+##  Use Cases
 1.  **Direct Recognition:** User draws → clicks "Recognize" → clicks "Add to Text".
 2.  **Manual Correction:** User edits recognized text in the output field before saving.
 3.  **Exporting:** User saves the entire session as a `.txt` file.
