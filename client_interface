@@ -193,7 +193,6 @@ class RecognitionApp(QMainWindow):
 
     # Visuals
     def apply_styles(self):
-        # Устанавливаем основной шрифт для всего приложения
         main_font = "font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', sans-serif;"
 
         self.setStyleSheet(f"""
@@ -237,7 +236,6 @@ class RecognitionApp(QMainWindow):
             }}
         """)
 
-        # Стилизуем заголовок результата отдельно (сделаем его более футуристичным)
         self.result_label.setStyleSheet(f"""
             {main_font}
             font-size: 28px;
